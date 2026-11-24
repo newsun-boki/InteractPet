@@ -1,0 +1,4 @@
+interface:
+  display_name: "打字递送桌宠"
+  short_description: "为原生桌宠生成形象、绑定动作与递字交互，支持单角色和成组角色。"
+  default_prompt: "用 $desktop-courier-pet 创建或扩展可打字递字、响应点击的桌宠，并制作对应角色动画。"

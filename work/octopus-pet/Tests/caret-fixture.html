@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Octopus caret validation — local fixture</title>
+<style>body{background:#f6f0fa;color:#4b305d;font:18px system-ui;margin:50px}textarea,div[contenteditable]{font:24px/36px monospace;width:700px;height:180px;border:2px solid #ae7dca;border-radius:10px;padding:20px;background:white;display:block}p{max-width:740px}#status{font-variant-numeric:tabular-nums}button{padding:10px;font-size:16px;margin:12px}</style>
+<h1>小八爪 · 光标定位验证</h1>
+<p>本地测试页面，不发送任何数据。测试会依次将文字插入光标移到不同字符、下一行和另一个输入框。点击任意位置后可自行输入。</p>
+<textarea id="plain" autofocus spellcheck="false">Octopus caret test.
+第二行：紫色小八爪鱼。
+Third line: reach here.</textarea>
+<p id="status">准备中</p>
+<div id="rich" contenteditable="true" spellcheck="false">Contenteditable test: 你好，小八爪鱼。</div>
+<button onclick="run()">重新运行 12 秒定位测试</button>
+<script>
+let jobs=[];
+function run(){
+ jobs.forEach(clearTimeout);jobs=[];
+ const a=document.querySelector('#plain'), b=document.querySelector('#rich'), s=document.querySelector('#status');
+ [[0,0],[2500,8],[5000,20],[7500,27]].forEach(([ms,index],n)=>jobs.push(setTimeout(()=>{
+ a.focus();a.setSelectionRange(index,index);s.textContent='用例 '+(n+1)+'：textarea，插入索引 '+index;
+ },ms)));
+ jobs.push(setTimeout(()=>{b.focus();const r=document.createRange();r.setStart(b.firstChild,5);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);s.textContent='用例 5：contenteditable，插入索引 5';},10000));
+ jobs.push(setTimeout(()=>{const r=document.createRange();r.setStart(b.firstChild,25);r.collapse(true);getSelection().removeAllRanges();getSelection().addRange(r);s.textContent='用例 6：contenteditable，插入索引 25';},12500));
+}
+setTimeout(run,1800);
+</script>

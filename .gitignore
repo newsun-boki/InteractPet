@@ -1,0 +1,28 @@
+# Local macOS / editor files
+.DS_Store
+._*
+.env
+.env.*
+*.log
+*.swp
+.vscode/
+.idea/
+
+# Reproducible products and dependencies
+/dist/
+/output/
+.build/
+.swiftpm/
+node_modules/
+target/
+__pycache__/
+*.pyc
+*.app/
+*.dmg
+*.zip
+*.tar
+*.tar.gz
+
+# Machine-specific diagnostics
+*-health.json
+runtime-health.json
