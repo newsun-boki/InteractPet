@@ -210,6 +210,8 @@ final class OverlayView: NSView {
     let motion: PetMotion
     let renderer: PetRenderer
     var screenOrigin = V()
+    var swarm: SwarmMotion?
+    let swarmRenderer = SwarmRenderer()
     init(frame: NSRect,motion: PetMotion,renderer: PetRenderer) {
         self.motion = motion;self.renderer = renderer
         super.init(frame:frame)
@@ -220,7 +222,7 @@ final class OverlayView: NSView {
         guard let c = NSGraphicsContext.current?.cgContext else { return }
         c.clear(dirtyRect);c.saveGState()
         c.translateBy(x:-screenOrigin.x,y:-screenOrigin.y)
-        renderer.draw(motion,in:c)
+        if let swarm = swarm,swarm.style != nil { swarmRenderer.draw(swarm,in:c) } else { renderer.draw(motion,in:c) }
         c.restoreGState()
     }
 }

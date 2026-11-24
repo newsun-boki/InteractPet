@@ -43,3 +43,8 @@ v0.8 新增 `--verify-cat-group --skin five-kittens --health-file <path>`，验�
 
 
 v0.9 五猫改由尾根伸出尾巴递字。`--verify-skins` 同时验证尾巴小动作开关与新进程恢复关闭。`Tests/CatTailPreview.swift` 导出两段原生示例：`assets-directory output-directory --video --detail` 为 18 秒放大尾巴动作，省略 `--detail` 为 28 秒边走/攀爬边送字；省略 `--video` 可先抽帧审看。预览编译需加 `CatTailRendering.swift`。结果在 `output/five-kittens-tails/`。
+
+
+v0.10 新增独立群体送字模式：`SwarmMotion.swift` 管理屏幕四边出生、Bezier 入场、合并快速事件、聚集/散开与有界粒子池；`SwarmRendering.swift` 原生绘制 16 种成员与携带字牌；`SwarmApp.swift` 连接菜单、偏好、键盘字符安全回调与原生重启验证。无需为矢量粒子伪造 PNG 皮肤记录。原有 22 个外观目录不变，群体通过单独菜单选择。
+
+使用 `--swarm fireflies` 临时选择群体，用 `--verify-swarm` 检查全部真实菜单与新进程偏好恢复。运行 `zsh scripts/verify-swarm.sh --preview` 可复现测试和 16 段原生预览。快速输入必须验证有成员真正到达目标，不能仅验证粒子数量受限；异步字母绑定事件 ID，旧回调不得给新群体贴错字。

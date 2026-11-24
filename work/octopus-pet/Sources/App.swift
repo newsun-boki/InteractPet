@@ -45,6 +45,8 @@ final class PetWindow: NSPanel {
 }
 final class AppDelegate: NSObject,NSApplicationDelegate {
     let motion = PetMotion()
+    let swarm = SwarmMotion()
+    var swarmItems: [NSMenuItem] = []
     let tracker = CaretTracker()
     let keyboard = InputMonitor()
     var renderer: PetRenderer!
@@ -108,14 +110,27 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
         let gap = UserDefaults.standard.double(forKey:"letterOffset")
         motion.letterOffset = gap >= 30 && gap <= 160 ? gap : 70
         screenIndex = UserDefaults.standard.integer(forKey:"petScreen")
+        swarm.select(SwarmStyle(rawValue:UserDefaults.standard.string(forKey:"swarmStyle") ?? ""))
+        if let i = CommandLine.arguments.firstIndex(of:"--swarm"),CommandLine.arguments.count>i+1 { swarm.select(SwarmStyle(rawValue:CommandLine.arguments[i+1])) }
+        swarm.reducedMotion = UserDefaults.standard.bool(forKey:"swarmReducedMotion")
+        swarm.intensity = UserDefaults.standard.bool(forKey:"swarmLowGlow") ? 0.25 : 0.65
+        let verifySwarm = CommandLine.arguments.contains("--verify-swarm")
+        let verifySwarmStartup = CommandLine.arguments.contains("--verify-swarm-startup")
         let verifySkins = CommandLine.arguments.contains("--verify-skins")
         let verifyBoundary = CommandLine.arguments.contains("--verify-boundary")
         let verifyCatGroup = CommandLine.arguments.contains("--verify-cat-group")
         let verifyDisabledStartup = CommandLine.arguments.contains("--verify-disabled-startup")
         let verifyCatsStartup = CommandLine.arguments.contains("--verify-cats-disabled-startup")
         let verifyTailStartup = CommandLine.arguments.contains("--verify-tails-disabled-startup")
-        if verifySkins || verifyBoundary || verifyCatGroup || verifyDisabledStartup || verifyCatsStartup || verifyTailStartup { hidden = true }
-        setupMenu();setupWindows()
+        if verifySwarm || verifySwarmStartup || verifySkins || verifyBoundary || verifyCatGroup || verifyDisabledStartup || verifyCatsStartup || verifyTailStartup { hidden = true }
+        setupMenu();setupWindows();refreshSwarmMenu()
+        if verifySwarmStartup,let i = CommandLine.arguments.firstIndex(of:"--verify-swarm-startup") {
+            precondition(swarm.style?.rawValue == CommandLine.arguments[i+1])
+            precondition(swarm.reducedMotion == (CommandLine.arguments[i+2]=="1"))
+            precondition((swarm.intensity<0.5) == (CommandLine.arguments[i+3]=="1"))
+            print("PASS: swarm preferences restored in new process");NSApp.terminate(nil);return
+        }
+        if verifySwarm { verifySwarmControls();NSApp.terminate(nil);return }
         if verifyTailStartup {
             precondition(motion.kind == .fivecats && !motion.fiveCats.tailPlayEnabled && catsTailItem.state == .off && !catsTailItem.isHidden)
             print("PASS: a new app process restored disabled tail flourishes")
@@ -142,7 +157,8 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
         if verifyCatGroup { verifyCatGroupControls();NSApp.terminate(nil);return }
         tracker.onSample = { [weak self] sample in self?.receive(sample) }
         keyboard.onKey = { [weak self] event in
-            guard let self = self,!self.paused,!self.demo else { return }
+            guard let self = self,!self.paused,!self.hidden,!self.demo else { return }
+            if self.swarm.style != nil { self.handleSwarmKey(event);return }
             self.inputCount += 1
             let index = self.motion.nextArm
             let generation = self.motion.generation
@@ -177,8 +193,9 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             }
         }
         keyboard.onClick = { [weak self] point in
-            guard let self = self,!self.paused,!self.demo,let primary = NSScreen.screens.first else { return }
+            guard let self = self,!self.paused,!self.hidden,!self.demo,let primary = NSScreen.screens.first else { return }
             self.clickCount += 1
+            if self.swarm.style != nil { self.swarm.emit(at:V(point.x,primary.frame.maxY-point.y),click:true);return }
             self.motion.click(at:V(point.x,primary.frame.maxY-point.y),time:ProcessInfo.processInfo.systemUptime-self.start)
         }
         tracker.start();keyboard.start()
@@ -208,6 +225,7 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             skinMenu.addItem(it);skinItems.append(it)
         }
         skinRoot.submenu = skinMenu;menu.addItem(skinRoot)
+        setupSwarmMenu(menu)
         func item(_ title: String,_ selector: Selector,_ key: String = "") {
             let it = NSMenuItem(title:title,action:selector,keyEquivalent:key);it.target = self;menu.addItem(it)
         }
@@ -220,10 +238,10 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
         catsTailItem.target = self;catsTailItem.state = motion.fiveCats.tailPlayEnabled ? .on : .off
         catsTailItem.toolTip = "关闭待机尾巴小动作；打字与点击时仍能伸尾递字。"
         catsTailItem.isHidden = motion.kind != .fivecats;menu.addItem(catsTailItem)
-        item("演示伸手动画",#selector(toggleDemo))
-        lettersItem = NSMenuItem(title:"显示触手拿来的字母",action:#selector(toggleLetters),keyEquivalent:"")
+        item("演示当前角色动画",#selector(toggleDemo))
+        lettersItem = NSMenuItem(title:"显示递送的字母",action:#selector(toggleLetters),keyEquivalent:"")
         lettersItem.target = self;lettersItem.state = showLetters ? .on : .off;menu.addItem(lettersItem)
-        let distanceRoot = NSMenuItem(title:"字牌距触手末端",action:nil,keyEquivalent:"")
+        let distanceRoot = NSMenuItem(title:"字牌与输入区的距离",action:nil,keyEquivalent:"")
         let distanceMenu = NSMenu()
         for (name,value) in [("近 · 45 像素",45),("适中 · 70 像素",70),("远 · 100 像素",100)] {
             let it = NSMenuItem(title:name,action:#selector(setLetterDistance(_:)),keyEquivalent:"")
@@ -260,6 +278,7 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
         for win in windows { win.orderOut(nil) }
         windows.removeAll();views.removeAll()
         let screens = NSScreen.screens
+        swarm.layout(screens.map {$0.frame})
         guard !screens.isEmpty else { return }
         if let id = hostDisplayID,let index = screens.firstIndex(where:{displayID($0)==id}) { screenIndex = index }
         screenIndex = min(max(screenIndex,0),screens.count-1)
@@ -274,6 +293,7 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             window.hidesOnDeactivate = false;window.isReleasedWhenClosed = false
             window.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary,.stationary,.ignoresCycle]
             let view = OverlayView(frame:CGRect(origin:.zero,size:screen.frame.size),motion:motion,renderer:renderer)
+            view.swarm = swarm
             view.screenOrigin = V(screen.frame.origin)
             window.contentView = view
             if !hidden { window.orderFrontRegardless() }
@@ -284,7 +304,7 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
     func receive(_ sample: CaretSample) {
         guard !demo else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        if sample.app != lastApp { motion.invalidateTarget();lastExact = -100;lastApp = sample.app }
+        if sample.app != lastApp { swarm.clear();motion.invalidateTarget();lastExact = -100;lastApp = sample.app }
         if let r = sample.rect,let primary = NSScreen.screens.first {
             let rect = appKitRect(fromAX:r,primaryHeight:primary.frame.maxY)
             let point = CGPoint(x:rect.midX,y:rect.minY-3)
@@ -293,7 +313,7 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             } else { motion.invalidateTarget() }
         } else if sample.status == "secure-input" || sample.status == "selection-active" || now-lastExact > 0.18 {
             motion.target = sample.status == "secure-input" ? nil : manualTarget
-            if sample.status == "secure-input" { motion.lastInput = -100;motion.energy = 0;motion.invalidateTarget(all:true) }
+            if sample.status == "secure-input" { swarm.clear();motion.lastInput = -100;motion.energy = 0;motion.invalidateTarget(all:true) }
         }
         if lastStatus != sample.status {
             lastStatus = sample.status
@@ -325,7 +345,13 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             health["skin"] = renderer.skin.id
             health["characterKind"] = motion.kind.rawValue
             health["version"] = Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "unknown"
-            health["motionMode"] = "concurrent"
+            health["motionMode"] = swarm.style == nil ? "concurrent" : "swarm"
+            health["swarmStyle"] = swarm.style?.rawValue ?? "none"
+            health["swarmParticles"] = swarm.count
+            health["swarmWaves"] = swarm.totalWaves
+            health["swarmLetters"] = swarm.totalLetters
+            health["swarmReducedMotion"] = swarm.reducedMotion
+            health["swarmStyles"] = SwarmStyle.allCases.map {$0.rawValue}
             health["gaitCycle"] = motion.locomotion.cycle
             health["fiveCatsSway"] = motion.fiveCats.swayEnabled
             if motion.kind == .fivecats {
@@ -354,6 +380,9 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
                 let y = phase < 5 ? base.minY+base.height*0.72 : base.minY+base.height*0.45
                 motion.target = V(x,y)
                 if now-lastDemoKey > 0.12 {
+                    if swarm.style != nil,let target = motion.target,let token = swarm.emit(at:target) {
+                        if showLetters { _ = swarm.accept(String(Array("firefly")[demoLetterIndex%7]),for:token);demoLetterIndex += 1 }
+                    }
                     let index = motion.nextArm;motion.input(at:now)
                     if showLetters {
                         let arm = motion.arms[index]
@@ -366,6 +395,14 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
             statusRow.title = "演示模式 · 菜单中可关闭"
         } else if absolute-lastExact > 0.35 && manualTarget == nil { motion.invalidateTarget() }
         if hidden { return }
+        swarm.paused = paused;swarm.scale = motion.scale;swarm.gap = motion.letterOffset
+        if swarm.style != nil {
+            swarm.step(dt)
+            let bounds = swarm.drawingBounds
+            let dirty = bounds.union(previousBounds);previousBounds = bounds
+            if !dirty.isNull { for view in views { view.setNeedsDisplay(dirty.offsetBy(dx:-view.screenOrigin.x,dy:-view.screenOrigin.y)) } }
+            return
+        }
         // Idle is 30 fps; reaching and active typing are 60 fps.
         let animating = motion.reaching || motion.boundary.busy
         if !animating && motion.energy < 0.05 && ticks % 2 == 0 { return }
@@ -391,8 +428,8 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
     @objc func screensChanged() { manualTarget = nil;motion.invalidateTarget(all:true);setupWindows() }
     @objc func woke() { motion.invalidateTarget(all:true);keyboard.stop();keyboard.start();setupWindows() }
     @objc func togglePause() { paused.toggle();motion.paused = paused;motion.invalidateTarget();statusRow.title = paused ? "已暂停" : "已继续" }
-    @objc func toggleHidden() { hidden.toggle();for win in windows { hidden ? win.orderOut(nil) : win.orderFrontRegardless() } }
-    @objc func toggleDemo() { demo.toggle();demoStart = ProcessInfo.processInfo.systemUptime-start;motion.invalidateTarget();lastStatus = "" }
+    @objc func toggleHidden() { hidden.toggle();swarm.clear();motion.clearLetters();for win in windows { hidden ? win.orderOut(nil) : win.orderFrontRegardless() } }
+    @objc func toggleDemo() { demo.toggle();swarm.clear();demoStart = ProcessInfo.processInfo.systemUptime-start;motion.invalidateTarget();lastStatus = "" }
     @objc func pinTarget() {
         statusRow.title = "请将鼠标移到目标位置…"
         DispatchQueue.main.asyncAfter(deadline:.now()+3) { [weak self] in
@@ -404,12 +441,13 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
     @objc func toggleLetters() {
         showLetters.toggle();UserDefaults.standard.set(showLetters,forKey:"showLetters")
         lettersItem.state = showLetters ? .on : .off
-        if !showLetters { motion.clearLetters() }
+        if !showLetters { swarm.clearLetters();motion.clearLetters() }
     }
     @objc func setSkin(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String,
               let skin = skins.first(where:{$0.id == id}),
               renderer.setSkin(skin,resources:Bundle.main.resourceURL!) else { return }
+        swarm.select(nil);UserDefaults.standard.removeObject(forKey:"swarmStyle")
         UserDefaults.standard.set(id,forKey:"petSkin")
         nameRow.title = skin.name
         let changedForm = motion.kind != skin.form
@@ -417,14 +455,16 @@ final class AppDelegate: NSObject,NSApplicationDelegate {
         if changedForm { setupWindows(enter:true) }
         saveBoundary();catsSwayItem.isHidden = motion.kind != .fivecats;catsTailItem.isHidden = motion.kind != .fivecats
         for item in skinItems { item.state = item.representedObject as? String == id ? .on : .off }
-        for view in views { view.needsDisplay = true }
+        refreshSwarmMenu()
     }
     func verifySkinSwitching() {
         // Exercises the real menu action without installing event taps or showing overlays.
+        let previousSwarm = UserDefaults.standard.object(forKey:"swarmStyle")
         let previous = UserDefaults.standard.object(forKey:"petSkin")
         let previousSway = UserDefaults.standard.object(forKey:"fiveCatsSway")
         let previousTail = UserDefaults.standard.object(forKey:"fiveCatsTailPlay")
         defer {
+            if let previousSwarm = previousSwarm { UserDefaults.standard.set(previousSwarm,forKey:"swarmStyle") } else { UserDefaults.standard.removeObject(forKey:"swarmStyle") }
             if let previous = previous { UserDefaults.standard.set(previous,forKey:"petSkin") }
             else { UserDefaults.standard.removeObject(forKey:"petSkin") }
             if let previousSway = previousSway { UserDefaults.standard.set(previousSway,forKey:"fiveCatsSway") }

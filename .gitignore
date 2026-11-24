@@ -26,3 +26,7 @@ __pycache__/
 # Machine-specific diagnostics
 *-health.json
 runtime-health.json
+
+# Native validation videos, executables and compiler cache
+/validation/
+.cache/
